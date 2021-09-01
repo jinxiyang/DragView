@@ -19,11 +19,6 @@ class DragLinearLayout : LinearLayout {
     private var mDragPointerId = -1
     private var mInitialTouchX = 0
     private var mInitialTouchY = 0
-    private var mLastTouchX = 0
-    private var mLastTouchY = 0
-
-    //拖拽的偏移量
-    private val mDragOffsets = IntArray(2)
 
     private var mIsDragging: Boolean = false
 
@@ -36,26 +31,17 @@ class DragLinearLayout : LinearLayout {
         mTouchSlop = vc.scaledTouchSlop
     }
 
-
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
         val action: Int = ev.actionMasked
         val actionIndex: Int = ev.actionIndex
         when(action){
 
             MotionEvent.ACTION_DOWN -> {
-                mDragPointerId = ev.getPointerId(0)
-                mInitialTouchX = (ev.x + 0.5f).toInt()
-                mInitialTouchY = (ev.y + 0.5f).toInt()
-                mLastTouchX = mInitialTouchX
-                mLastTouchY = mInitialTouchY
+                onPointerDown(ev, 0)
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
-                mDragPointerId = ev.getPointerId(actionIndex)
-                mInitialTouchX = (ev.getX(actionIndex) + 0.5f).toInt()
-                mInitialTouchY = (ev.getY(actionIndex) + 0.5f).toInt()
-                mLastTouchX = mInitialTouchX
-                mLastTouchY = mInitialTouchY
+                onPointerDown(ev, actionIndex)
             }
 
             MotionEvent.ACTION_MOVE -> {
@@ -74,23 +60,13 @@ class DragLinearLayout : LinearLayout {
             }
 
             MotionEvent.ACTION_POINTER_UP -> {
-                val aIndex: Int = ev.actionIndex
-                if (ev.getPointerId(aIndex) == mDragPointerId) {
-                    // Pick a new pointer to pick up the slack.
-                    val newIndex = if (aIndex == 0) 1 else 0
-                    mDragPointerId = ev.getPointerId(newIndex)
-                    mLastTouchX = (ev.getX(newIndex) + 0.5f).toInt()
-                    mLastTouchY = (ev.getY(newIndex) + 0.5f).toInt()
-                    mInitialTouchX = mLastTouchX
-                    mInitialTouchY = mLastTouchY
-                }
+                onPointerUp(ev)
             }
 
             MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
                 mIsDragging = false
             }
         }
-        Log.i(TAG, "onInterceptTouchEvent: $mIsDragging")
         return mIsDragging
     }
 
@@ -98,31 +74,16 @@ class DragLinearLayout : LinearLayout {
         val action: Int = ev.actionMasked
         val actionIndex: Int = ev.actionIndex
 
-        val vtev = MotionEvent.obtain(ev)
-        if (action == MotionEvent.ACTION_DOWN) {
-            mDragOffsets[0] = 0
-            mDragOffsets[1] = 0
-        }
-        vtev.offsetLocation(mDragOffsets[0].toFloat(), mDragOffsets[1].toFloat())
-
-        var isDragging = mIsDragging
+        var dispatchSuper = true
 
         when(action){
 
             MotionEvent.ACTION_DOWN -> {
-                mDragPointerId = ev.getPointerId(0)
-                mInitialTouchX = (ev.x + 0.5f).toInt()
-                mInitialTouchY = (ev.y + 0.5f).toInt()
-                mLastTouchX = mInitialTouchX
-                mLastTouchY = mInitialTouchY
+                onPointerDown(ev, 0)
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
-                mDragPointerId = ev.getPointerId(actionIndex)
-                mInitialTouchX = (ev.getX(actionIndex) + 0.5f).toInt()
-                mInitialTouchY = (ev.getY(actionIndex) + 0.5f).toInt()
-                mLastTouchX = mInitialTouchX
-                mLastTouchY = mInitialTouchY
+                onPointerDown(ev, actionIndex)
             }
 
             MotionEvent.ACTION_MOVE -> {
@@ -130,72 +91,90 @@ class DragLinearLayout : LinearLayout {
                 if (index < 0) {
                     return false
                 }
+
                 val x = (ev.getX(index) + 0.5f).toInt()
                 val y = (ev.getY(index) + 0.5f).toInt()
-                val dx = mLastTouchX - x
-                val dy = mLastTouchY - y
 
-                if (!isDragging){
-                    isDragging = (canDragHorizontal() && Math.abs(dx) > mTouchSlop) ||
+                //view跟随手指，就是保持最初点击的点，在原始位置。坐标系一直在变
+                val dx = x - mInitialTouchX
+                val dy = y - mInitialTouchY
+
+                if (!mIsDragging) {
+                    mIsDragging = (canDragHorizontal() && Math.abs(dx) > mTouchSlop) ||
                             (canDragVertical() && Math.abs(dy) > mTouchSlop)
                 }
 
-                if(isDragging){
+                if(mIsDragging){
                     parent?.requestDisallowInterceptTouchEvent(true)
-//                    dragOffsets[0] = 0
-//                    dragOffsets[1] = 0
                     drag(dx, dy)
-                    mLastTouchX = x
-                    mLastTouchY = y
+                    dispatchSuper = true
                 }
+
+                Log.i(TAG, "onTouchEvent:  xy = [$x, $y]  initXY = [$mInitialTouchX, $mInitialTouchY]   dxy = [$dx, $dy]   translationXY = [${translationX}, ${translationY}]")
             }
 
             MotionEvent.ACTION_POINTER_UP -> {
-                val aIndex: Int = ev.actionIndex
-                if (ev.getPointerId(aIndex) == mDragPointerId) {
-                    // Pick a new pointer to pick up the slack.
-                    val newIndex = if (aIndex == 0) 1 else 0
-                    mDragPointerId = ev.getPointerId(newIndex)
-                    mLastTouchX = (ev.getX(newIndex) + 0.5f).toInt()
-                    mInitialTouchX = mLastTouchX
-                    mLastTouchY = (ev.getY(newIndex) + 0.5f).toInt()
-                    mInitialTouchY = mLastTouchY
-                }
+                onPointerUp(ev)
             }
 
             MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
-                isDragging = false
+                if (mIsDragging) {
+                    //取消super的点击事件的监听
+                    dispatchSuper = false
+                    val cancelEvent = MotionEvent.obtain(ev)
+                    cancelEvent.action = MotionEvent.ACTION_CANCEL
+                    super.onTouchEvent(cancelEvent)
+                }
+                mIsDragging = false
             }
         }
 
-        mIsDragging = isDragging
-        Log.i(TAG, "onTouchEvent: $isDragging")
-        if (mIsDragging){
-            mIsDragging
-        } else {
+        Log.i(TAG, "onTouchEvent: $mIsDragging")
+        if (dispatchSuper){
             super.onTouchEvent(ev)
         }
         return true
     }
 
-    private fun drag(dx: Int, dy: Int) {
-        translationX -= dx
-        translationY -= dy
+    private fun onPointerDown(ev: MotionEvent, actionIndex: Int) {
+        mDragPointerId = ev.getPointerId(actionIndex)
+        mInitialTouchX = (ev.getX(actionIndex) + 0.5f).toInt()
+        mInitialTouchY = (ev.getY(actionIndex) + 0.5f).toInt()
     }
 
+    private fun onPointerUp(ev: MotionEvent) {
+        val aIndex: Int = ev.actionIndex
+        if (ev.getPointerId(aIndex) == mDragPointerId) {
+            // Pick a new pointer to pick up the slack.
+            val newIndex = if (aIndex == 0) 1 else 0
+            mDragPointerId = ev.getPointerId(newIndex)
+            //给定一个初始点击坐标
+            mInitialTouchX = (ev.getX(newIndex) + 0.5f).toInt()
+            mInitialTouchY = (ev.getY(newIndex) + 0.5f).toInt()
+        }
+    }
 
-    fun canDragHorizontal(): Boolean{
+    private fun drag(dx: Int, dy: Int) {
+        if (canDragHorizontal()){
+            translationX += dx
+        }
+
+        if (canDragVertical()){
+            translationY += dy
+        }
+    }
+
+    open fun canDragHorizontal(): Boolean{
         return mDragOrientation.and(DRAG_ORIENTATION_HORIZONTAL) != 0
     }
 
-    fun canDragVertical(): Boolean{
+    open fun canDragVertical(): Boolean{
         return mDragOrientation.and(DRAG_ORIENTATION_VERTICAL) != 0
     }
 
     fun setDragOrientation(@DragOrientation dragOrientation: Int){
         this.mDragOrientation = dragOrientation
     }
-
 
     companion object {
         const val DRAG_ORIENTATION_NONE: Int                = 0

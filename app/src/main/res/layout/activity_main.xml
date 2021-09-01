@@ -9,12 +9,8 @@
         android:layout_width="50dp"
         android:layout_height="50dp"
         android:layout_gravity="center"
-        android:background="#f0a">
-
-
-
-
-
-    </com.yang.dragview.DragLinearLayout>
+        android:onClick="clickContainer"
+        android:orientation="horizontal"
+        android:background="#f0a"/>
 
 </FrameLayout>
